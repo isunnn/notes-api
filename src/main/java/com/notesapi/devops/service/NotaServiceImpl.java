@@ -4,8 +4,10 @@ import com.notesapi.devops.dto.CrearNotaRequest;
 import com.notesapi.devops.dto.NotaResponse;
 import com.notesapi.devops.entity.Nota;
 import com.notesapi.devops.repository.NotaRepository;
+
 import org.springframework.stereotype.Service;
 import java.util.List;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class NotaServiceImpl implements NotaService {
@@ -30,7 +32,7 @@ public class NotaServiceImpl implements NotaService {
 
     @Override
     public List<NotaResponse> listar() {
-        return notaRepository.findAll()
+        return notaRepository.findAll(Sort.by(Sort.Direction.DESC, "fechaCreacion"))
                 .stream()
                 .map(nota -> new NotaResponse(
                         nota.getId(),
