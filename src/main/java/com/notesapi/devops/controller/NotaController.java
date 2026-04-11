@@ -6,6 +6,7 @@ import com.notesapi.devops.service.NotaService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/notas")
@@ -21,5 +22,10 @@ public class NotaController {
     @ResponseStatus(HttpStatus.CREATED)
     public NotaResponse crear(@Valid @RequestBody CrearNotaRequest notaRequest) {
         return notaService.crear(notaRequest);
+    }
+
+    @GetMapping 
+    public List<NotaResponse> listar() {
+    return notaService.listar();
     }
 }

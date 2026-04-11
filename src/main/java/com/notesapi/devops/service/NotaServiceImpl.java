@@ -5,6 +5,7 @@ import com.notesapi.devops.dto.NotaResponse;
 import com.notesapi.devops.entity.Nota;
 import com.notesapi.devops.repository.NotaRepository;
 import org.springframework.stereotype.Service;
+import java.util.List;
 
 @Service
 public class NotaServiceImpl implements NotaService {
@@ -26,4 +27,17 @@ public class NotaServiceImpl implements NotaService {
                 save.getFechaCreacion()
         );
     }
+
+    @Override
+    public List<NotaResponse> listar() {
+        return notaRepository.findAll()
+                .stream()
+                .map(nota -> new NotaResponse(
+                        nota.getId(),
+                        nota.getNombreNota(),
+                        nota.getFechaCreacion()
+                ))
+                .toList();
+    }
+    
 }
