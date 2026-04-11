@@ -11,7 +11,7 @@ Mini proyecto backend (Java 21 + Spring Boot) para demostrar un flujo de trabajo
 ---
 
 ## 1. ¿Por qué GitFlow?
-La utilización de*GitFlow para este encargo se justifica por el control y orden que entrega sobre el ciclo de vida del código. Al separar el trabajo en ramas `develop`, `feature/*` y `hotfix/*`, se mantiene `main` como una rama estable y, al mismo tiempo, se obtiene un historial claro de cambios y versiones mediante Pull Requests, cumpliendo con las exigencias del encargo.
+La utilización de GitFlow para este encargo se justifica por el control y orden que entrega sobre el ciclo de vida del código. Al separar el trabajo en ramas `develop`, `feature/*` y `hotfix/*`, se mantiene `main` como una rama estable y, al mismo tiempo, se obtiene un historial claro de cambios y versiones mediante Pull Requests, cumpliendo con las exigencias del encargo.
 
 ## Branches
 - `main`: versión estable
@@ -103,9 +103,9 @@ Se utilizaron nombres descriptivos con etiquetas según el tipo de cambio.
 Ejemplos:
 - `feature: crear nota (POST /api/notas)`
 - `feature: listar notas (GET /api/notas)`
-- `hotfix: ordenar listado de notas por fechaCreacion desc`
+- `hotfix: ordenar listado de notas`
 - `release: v1.0.0 (features crear + listar notas)`
-- `chore: sync main into develop (hotfix)`
+- `chore: sincronizar main a develop (hotfix)`
 - `docs: actualizar README`
 
 ### Revisión mediante Pull Requests
