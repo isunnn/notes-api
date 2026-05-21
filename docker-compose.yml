@@ -1,0 +1,10 @@
+services:
+  notes-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notes-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: "default"
