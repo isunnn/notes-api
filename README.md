@@ -114,10 +114,72 @@ Ejemplos:
 
 ---
 
-## 6. GitHub Actions (CI)
-Se configuró un workflow básico para:
-- Checkout del repo
-- Setup de Java
-- Ejecutar `./mvnw test`
+## 6. CI/CD (GitHub Actions) + Calidad + Trazabilidad 
 
-Ubicación: `.github/workflows/` (workflow de CI dentro de esa carpeta).
+Este repositorio implementa un pipeline CI/CD en GitHub Actions que automatiza:
+- Construcción y pruebas (JUnit)
+- Análisis de calidad de código (SonarCloud / SonarQubeCloud)
+- Construcción de imagen Docker
+- Despliegue simulado en un entorno local con Docker Compose + smoke test
+- Escaneo/gestión de dependencias con Dependabot
+
+### Workflow
+Ubicación: `.github/workflows/ci.yml`
+
+Se ejecuta en:
+- `push` a `develop` y `main`
+- `pull_request` hacia `develop` y `main`
+
+### Etapas del pipeline 
+1) **Tests**  
+   Ejecuta:
+   ```bash
+   ./mvnw test
+   ```
+   - Incluye tests unitarios y de capa web (MockMvc).
+
+2) **Análisis SonarCloud**  
+   Ejecuta:
+   ```bash
+   ./mvnw sonar:sonar
+   ```
+   - Publica resultados en SonarCloud y aplica Quality Gate.
+
+3) **Build de imagen Docker**  
+   Ejecuta:
+   ```bash
+   docker build -t notes-api:<commit_sha> .
+   ```
+
+4) **Despliegue simulado con Docker Compose**  
+   Ejecuta:
+   ```bash
+   docker compose up -d --build
+   curl -f http://localhost:8080/api/notas
+   docker compose down
+   ```
+
+### Dependabot 
+Dependabot está configurado en:
+- `.github/dependabot.yml`
+
+Crea Pull Requests automáticos para actualizar:
+- Dependencias Maven (`pom.xml`)
+- Actions del workflow
+
+### Bloqueos y calidad
+Para asegurar calidad y estabilidad:
+- Se configuró Branch protection en `develop` y `main` para exigir que pasen los checks:
+  - `test-and-sonar`
+  - `docker-compose-despliegue-simulado`
+  - `SonarCloud Code Analysis`
+- Si falla el análisis (tests/Sonar/smoke test), el PR no puede mergearse.
+
+### Trazabilidad
+La trazabilidad se garantiza porque:
+- Todo cambio entra por Pull Request (no hay commits directos a ramas protegidas).
+- Cada PR queda asociado a:
+  - Commits específicos
+  - Resultados del workflow 
+  - Resultado del análisis SonarCloud
+- La imagen Docker puede etiquetarse con el SHA del commit, permitiendo rastrear qué versión exacta se desplegó.
