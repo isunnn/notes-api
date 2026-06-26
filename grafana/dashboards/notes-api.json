@@ -1,0 +1,349 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "title": "Requests por Minuto",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(http_server_requests_seconds_count[5m]))",
+                    "legendFormat": "req/s",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "smooth",
+                        "fillOpacity": 20
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Latencia P95 (ms)",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+                    "legendFormat": "P95",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "smooth",
+                        "fillOpacity": 20
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Errores 5xx",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]))",
+                    "legendFormat": "5xx/s",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "smooth",
+                        "fillOpacity": 20,
+                        "thresholdsStyle": {
+                            "mode": "line"
+                        }
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 0.1
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Errores 4xx",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(http_server_requests_seconds_count{status=~\"4..\"}[5m]))",
+                    "legendFormat": "4xx/s",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "smooth",
+                        "fillOpacity": 20
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Uso de CPU (%)",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "system_cpu_usage * 100",
+                    "legendFormat": "CPU",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 70
+                            },
+                            {
+                                "color": "red",
+                                "value": 90
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "JVM Heap Memory",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+                    "legendFormat": "Used",
+                    "refId": "A"
+                },
+                {
+                    "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+                    "legendFormat": "Max",
+                    "refId": "B"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "smooth",
+                        "fillOpacity": 20
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Uptime del Servicio",
+            "type": "stat",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "process_uptime_seconds",
+                    "legendFormat": "Uptime",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "green",
+                                "value": 60
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Tiempo de Despliegue",
+            "type": "stat",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 24
+            },
+            "targets": [
+                {
+                    "expr": "process_uptime_seconds",
+                    "legendFormat": "Uptime",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 30
+                            },
+                            {
+                                "color": "green",
+                                "value": 60
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            }
+        },
+        {
+            "title": "Cobertura de Pruebas (%)",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 24
+            },
+            "targets": [
+                {
+                    "expr": "sonarcloud_test_coverage",
+                    "legendFormat": "Coverage",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 60
+                            },
+                            {
+                                "color": "green",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            }
+        }
+    ],
+    "schemaVersion": 39,
+    "tags": [
+        "notes-api",
+        "spring-boot",
+        "prometheus"
+    ],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-30m",
+        "to": "now"
+    },
+    "title": "Notes API - Dashboard",
+    "uid": "notes-api-dashboard",
+    "version": 1
+}
