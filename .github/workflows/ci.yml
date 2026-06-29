@@ -51,7 +51,7 @@ jobs:
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "HTTP Code: $HTTP_CODE"
           echo "Response: $BODY"
-          STATUS=$(echo "$BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+          STATUS=$(echo "$BODY" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
           echo "Quality Gate status: $STATUS"
           if [ "$STATUS" != "OK" ]; then
             echo "Quality Gate FAILED - pipeline detenido"
