@@ -46,7 +46,12 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           sleep 30
-          STATUS=$(curl -s -u $SONAR_TOKEN: "https://sonarcloud.io/api/qualitygates/project?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+          RESPONSE=$(curl -s -w "\n%{http_code}" -u $SONAR_TOKEN: "https://sonarcloud.io/api/qualitygates/project?projectKey=${{ secrets.SONAR_PROJECT_KEY }}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          STATUS=$(echo "$BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
           echo "Quality Gate status: $STATUS"
           if [ "$STATUS" != "OK" ]; then
             echo "Quality Gate FAILED - pipeline detenido"
@@ -62,7 +67,7 @@ jobs:
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: Dockerfile
+          dockerfile: dockerfile
 
   audit:
     runs-on: ubuntu-latest
