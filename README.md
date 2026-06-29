@@ -234,7 +234,7 @@ docker compose up -d
 
 ---
 
-## 8. Cumplimiento y seguridad (IE5)
+## 8. Cumplimiento y seguridad
 
 ### Hadolint
 Linting estático del Dockerfile. Verifica:
