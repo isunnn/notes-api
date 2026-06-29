@@ -36,34 +36,86 @@ jobs:
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
             -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.login=${SONAR_TOKEN}
+            -Dsonar.login=${SONAR_TOKEN} \
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+            -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
 
-  docker-compose-despliegue-simulado:
+      - name: Verificar Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          sleep 30
+          RESPONSE=$(curl -s -w "\n%{http_code}" -u $SONAR_TOKEN: "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          STATUS=$(echo "$BODY" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+          echo "Quality Gate status: $STATUS"
+          if [ "$STATUS" != "OK" ]; then
+            echo "Quality Gate FAILED - pipeline detenido"
+            exit 1
+          fi
+          echo "Quality Gate PASSED"
+
+  lint-dockerfile:
     runs-on: ubuntu-latest
-    needs: test-and-sonar
     steps:
       - uses: actions/checkout@v4
 
-      - name: Construir imagen Docker
-        run: docker build -t notes-api:${{ github.sha }} .
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfile
+          failure-threshold: warning
 
-      - name: Levantar entorno simulado
-        run: docker compose up -d --build
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Smoke test (GET /api/notas)
+      - name: Ejecutar auditoria
+        run: chmod +x scripts/audit.sh && ./scripts/audit.sh
+
+  deploy-minikube:
+    runs-on: ubuntu-latest
+    needs: [test-and-sonar, lint-dockerfile, audit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: Build image in Minikube
+        run: |
+          eval $(minikube docker-env)
+          docker build -t notes-api:latest .
+
+      - name: Deploy to Minikube
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Wait for rollout
+        run: kubectl -n notes-api rollout status deployment/notes-api --timeout=120s
+
+      - name: Smoke test
         run: |
           for i in {1..20}; do
-            if curl -fsS http://localhost:8080/api/notas > /dev/null; then
+            if kubectl -n notes-api exec deploy/notes-api -- curl -fsS http://localhost:8080/api/notas > /dev/null 2>&1; then
               echo "API OK"
               exit 0
             fi
             echo "Esperando API..."
-            sleep 2
+            sleep 3
           done
           echo "La API no inició"
-          docker compose logs
+          kubectl -n notes-api logs -l app=notes-api
           exit 1
 
-      - name: Detener entorno simulado
+      - name: Cleanup
         if: always()
-        run: docker compose down
+        run: minikube delete
