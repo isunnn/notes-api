@@ -114,14 +114,16 @@ Ejemplos:
 
 ---
 
-## 6. CI/CD (GitHub Actions) + Calidad + Trazabilidad 
+## 6. CI/CD (GitHub Actions) + Calidad + Trazabilidad
 
 Este repositorio implementa un pipeline CI/CD en GitHub Actions que automatiza:
 - Construcción y pruebas (JUnit)
-- Análisis de calidad de código (SonarCloud / SonarQubeCloud)
-- Construcción de imagen Docker
-- Despliegue simulado en un entorno local con Docker Compose + smoke test
-- Escaneo/gestión de dependencias con Dependabot
+- Análisis de calidad de código (SonarCloud)
+- Linting de Dockerfile (Hadolint)
+- Auditoría de seguridad y configuración (script custom)
+- Despliegue en Kubernetes (Minikube) + smoke test
+- Monitoreo (Prometheus + Grafana)
+- Escaneo/gestión de dependencias (Dependabot)
 
 ### Workflow
 Ubicación: `.github/workflows/ci.yml`
@@ -130,56 +132,174 @@ Se ejecuta en:
 - `push` a `develop` y `main`
 - `pull_request` hacia `develop` y `main`
 
-### Etapas del pipeline 
-1) **Tests**  
-   Ejecuta:
-   ```bash
-   ./mvnw test
-   ```
-   - Incluye tests unitarios y de capa web (MockMvc).
+### Jobs del pipeline
 
-2) **Análisis SonarCloud**  
-   Ejecuta:
-   ```bash
-   ./mvnw sonar:sonar
-   ```
-   - Publica resultados en SonarCloud y aplica Quality Gate.
+#### Job 1: `test-and-sonar`
+Ejecuta tests unitarios y análisis de calidad:
+```bash
+./mvnw -B test
+./mvnw -B sonar:sonar
+```
+- Tests JUnit (unitarios + MockMvc)
+- Análisis SonarCloud (code smells, bugs, vulnerabilidades)
+- Verificación de Quality Gate (el PR se bloquea si no pasa)
 
-3) **Build de imagen Docker**  
-   Ejecuta:
-   ```bash
-   docker build -t notes-api:<commit_sha> .
-   ```
+#### Job 2: `lint-dockerfile`
+Linting del Dockerfile con Hadolint:
+```yaml
+- uses: hadolint/hadolint-action@v3.1.0
+  with:
+    dockerfile: dockerfile
+    failure-threshold: warning
+```
+- Detecta prácticas inseguras en el Dockerfile
+- Bloquea si encuentra warnings o errores
 
-4) **Despliegue simulado con Docker Compose**  
-   Ejecuta:
-   ```bash
-   docker compose up -d --build
-   curl -f http://localhost:8080/api/notas
-   docker compose down
-   ```
+#### Job 3: `audit`
+Auditoría de seguridad y configuración:
+```bash
+chmod +x scripts/audit.sh && ./scripts/audit.sh
+```
+El script verifica:
+- Presencia de secretos hardcodeados (passwords, tokens, keys)
+- Uso de root user en Dockerfile
+- Archivos `.env` committeados
+- Uso de tags `:latest` en imágenes
+- Permisos de archivos sensibles
 
-### Dependabot 
-Dependabot está configurado en:
-- `.github/dependabot.yml`
+#### Job 4: `deploy-minikube`
+Despliegue en clúster Kubernetes local:
+```bash
+minikube start
+eval $(minikube docker-env)
+docker build -t notes-api:latest .
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/hpa.yaml
+kubectl rollout status deployment/notes-api --timeout=120s
+```
+- Solo se ejecuta si los 3 jobs anteriores pasan
+- Construye la imagen dentro de Minikube
+- Despliega namespace, deployment, service y HPA
+- Verifica que el rollout completes exitosamente
+- Ejecuta smoke test contra la API
+- Limpia el clúster al finalizar
 
-Crea Pull Requests automáticos para actualizar:
-- Dependencias Maven (`pom.xml`)
-- Actions del workflow
+### Dependabot
+Dependabot está configurado en `.github/dependabot.yml`:
+- Dependencias Maven (`pom.xml`): revisión semanal
+- Actions del workflow: revisión semanal
 
 ### Bloqueos y calidad
-Para asegurar calidad y estabilidad:
-- Se configuró Branch protection en `develop` y `main` para exigir que pasen los checks:
-  - `test-and-sonar`
-  - `docker-compose-despliegue-simulado`
-  - `SonarCloud Code Analysis`
-- Si falla el análisis (tests/Sonar/smoke test), el PR no puede mergearse.
+Branch protection en `develop` y `main` exige que pasen:
+- `test-and-sonar` (tests + Quality Gate)
+- `lint-dockerfile` (Hadolint)
+- `audit` (auditoría de seguridad)
+- `deploy-minikube` (despliegue exitoso)
+
+Si falla cualquiera de estos jobs, el PR no puede mergearse.
 
 ### Trazabilidad
-La trazabilidad se garantiza porque:
-- Todo cambio entra por Pull Request (no hay commits directos a ramas protegidas).
-- Cada PR queda asociado a:
-  - Commits específicos
-  - Resultados del workflow 
-  - Resultado del análisis SonarCloud
-- La imagen Docker puede etiquetarse con el SHA del commit, permitiendo rastrear qué versión exacta se desplegó.
+- Todo cambio entra por Pull Request
+- Cada PR queda asociado a commits, resultados del workflow y SonarCloud
+- La imagen Docker se etiqueta con el SHA del commit
+- Kubernetes mantiene historial de revisiones (`kubectl rollout history`)
+
+---
+
+## 7. Monitoreo (Prometheus + Grafana)
+
+### Métricas monitoreadas
+- **Requests por minuto** (rate de HTTP requests)
+- **Latencia P95** (tiempo de respuesta)
+- **Errores 5xx y 4xx** (tasa de errores)
+- **CPU y memoria** (uso de recursos)
+- **JVM Heap Memory** (uso de memoria Java)
+- **Uptime** (tiempo de actividad)
+- **Test Coverage** (cobertura de código desde SonarCloud)
+
+### Dashboard de Grafana
+Ubicación: `grafana/dashboards/notes-api.json`
+- 9 paneles preconfigurados
+- Se carga automáticamente al iniciar Grafana (provisioning)
+- Datasource: Prometheus (configurado en `grafana/provisioning/`)
+
+### Cómo ejecutar localmente
+```bash
+docker compose up -d
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3000 (admin/admin)
+```
+
+---
+
+## 8. Cumplimiento y seguridad
+
+### Hadolint
+Linting estático del Dockerfile. Verifica:
+- No usar `latest` como tag de imagen base
+- No ejecutar como root
+- Copiar dependencias antes del código fuente
+- Usar `COPY` en vez de `ADD`
+- Configurar `HEALTHCHECK`
+
+### audit.sh (script custom)
+Script de auditoría que verifica:
+- **Secretos**: busca patrones como `password=`, `token=`, `secret=`, `key=`
+- **Root user**: verifica que el Dockerfile no ejecute como root
+- **Archivos .env**: detecta si hay archivos `.env` committeados
+- **Latest tags**: verifica que las imágenes no usen `:latest`
+- **Permisos**: revisa permisos de archivos sensibles
+
+### Quality Gate de SonarCloud
+El pipeline verifica que el código cumple estándares de calidad:
+- Cobertura de código mínima
+- Número máximo de bugs aceptables
+- Número máximo de code smells aceptables
+- Sin vulnerabilidades críticas
+
+Si el Quality Gate falla, el PR se bloquea automáticamente.
+
+---
+
+## 9. Despliegue Kubernetes 
+
+### Deployment (detalles)
+- **Réplicas**: 2 (alta disponibilidad)
+- **imagePullPolicy**: Never (Minikube) / Always (EKS)
+- **Readiness Probe**: `/actuator/health` 
+- **Liveness Probe**: `/actuator/health` 
+- **Resources**:
+  - Requests: 256Mi RAM, 250m CPU
+  - Limits: 512Mi RAM, 500m CPU
+
+### HPA (Horizontal Pod Autoscaler)
+- **Mínimo**: 2 réplicas
+- **Máximo**: 5 réplicas
+- **Métricas**:
+  - CPU: escala si supera 70% de uso
+  - Memory: escala si supera 80% de uso
+
+---
+
+## 10. Decisiones técnicas 
+
+### Integración en el pipeline CI/CD
+
+Cada herramienta se ejecuta en una etapa específica del pipeline y bloquea el avance si falla:
+
+- **SonarCloud + Quality Gate**: se ejecutan en el job `test-and-sonar`. Analizan calidad del código y verifican que cumpla umbrales mínimos. Si el Quality Gate falla, el pipeline se detiene.
+- **Hadolint**: se ejecuta en el job `lint-dockerfile`. Valida el Dockerfile contra mejores prácticas. Si detecta warnings, el pipeline se detiene.
+- **audit.sh**: se ejecuta en el job `audit`. Busca secretos, root user, archivos `.env` y tags `:latest`. Si encuentra algo, el pipeline se detiene.
+- **Dependabot**: crea PRs automáticos para actualizar dependencias Maven y Actions de GitHub.
+- **Kubernetes + HPA + Probes**: se despliegan en el job `deploy-minikube` solo si los 3 jobs anteriores pasaron. HPA ajusta réplicas según CPU/memoria. Probes reinician pods que dejan de responder.
+- **Prometheus + Grafana**: monitorean la aplicación después del despliegue, exponiendo métricas de rendimiento y calidad.
+
+### Decisiones técnicas justificadas
+
+- **GitFlow**: control de versiones con hotfixes paralelos y releases gestionados por PR.
+- **SonarCloud + Quality Gate**: aseguran que solo código sin bugs críticos ni vulnerabilidades llegue a producción.
+- **Hadolint + audit.sh**: refuerzan la seguridad de la imagen Docker y del repositorio.
+- **Kubernetes**: brinda alta disponibilidad, self-healing y escalamiento automático.
+- **Prometheus + Grafana**: permiten detectar anomalías en tiempo real y tomar decisiones operacionales basadas en datos.
