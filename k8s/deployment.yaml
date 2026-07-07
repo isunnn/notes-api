@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: notes-api
-          image: notes-api:latest
-          imagePullPolicy: Never
+          image: 056172563599.dkr.ecr.us-east-1.amazonaws.com/notes-api:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           env:

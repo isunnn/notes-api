@@ -34,3 +34,7 @@ build/
 
 ### Environment ###
 .env
+
+# Istio installation files
+istio-*/
+istio.zip
