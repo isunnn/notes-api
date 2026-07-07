@@ -137,7 +137,7 @@ jobs:
 
       - name: Pruebas de aceptación
         run: |
-          chmod +x scripts/acceptance-test.sh
+          chmod +x scripts/acceptance-tests.sh
           kubectl port-forward -n notes-api svc/notes-api 8080:80 &
           sleep 10
           ./scripts/acceptance-tests.sh http://localhost:8080
@@ -153,4 +153,9 @@ jobs:
 
       - name: Cleanup en caso de error
         if: failure()
-        run: kubectl -n notes-api rollout undo deployment/notes-api
+        run: |
+          if [ -f "$HOME/.kube/config" ]; then
+            kubectl -n notes-api rollout undo deployment/notes-api
+          else
+            echo "kubeconfig no encontrado, saltando cleanup"
+          fi

@@ -121,7 +121,7 @@ Este repositorio implementa un pipeline CI/CD en GitHub Actions que automatiza:
 - Análisis de calidad de código (SonarCloud)
 - Linting de Dockerfile (Hadolint)
 - Auditoría de seguridad y configuración (script custom)
-- Despliegue en Kubernetes (Minikube) + smoke test
+- Despliegue en Amazon EKS (Kubernetes) + Istio + pruebas de aceptación
 - Monitoreo (Prometheus + Grafana)
 - Escaneo/gestión de dependencias (Dependabot)
 
@@ -167,24 +167,40 @@ El script verifica:
 - Uso de tags `:latest` en imágenes
 - Permisos de archivos sensibles
 
-#### Job 4: `deploy-minikube`
-Despliegue en clúster Kubernetes local:
+#### Job 4: `deploy-eks`
+Despliegue en Amazon EKS con service mesh Istio:
 ```bash
-minikube start
-eval $(minikube docker-env)
-docker build -t notes-api:latest .
+# Login a ECR y build de imagen Docker
+aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_REGISTRY
+docker build -t $ECR_REGISTRY/notes-api:$IMAGE_TAG .
+docker push $ECR_REGISTRY/notes-api:$IMAGE_TAG
+
+# Configurar kubectl y desplegar
+aws eks update-kubeconfig --name notes-api-cluster --region us-east-1
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/hpa.yaml
-kubectl rollout status deployment/notes-api --timeout=120s
+
+# Instalar Istio y configurar service mesh
+istioctl install --set profile=demo -y
+kubectl apply -f k8s/istio/gateway.yaml
+kubectl apply -f k8s/istio/virtualservice.yaml
+kubectl apply -f k8s/istio/destinationrule.yaml
+
+# Pruebas de aceptación
+kubectl port-forward -n notes-api svc/notes-api 8080:80 &
+./scripts/acceptance-test.sh http://localhost:8080
 ```
-- Solo se ejecuta si los 3 jobs anteriores pasan
-- Construye la imagen dentro de Minikube
+- Solo se ejecuta si los 3 jobs anteriores pasan y es push a `main` o `develop`
+- Login a Amazon ECR, build y push de imagen Docker etiquetada con SHA del commit
+- Configura kubectl contra el clúster EKS
 - Despliega namespace, deployment, service y HPA
-- Verifica que el rollout completes exitosamente
-- Ejecuta smoke test contra la API
-- Limpia el clúster al finalizar
+- Instala Istio (service mesh) con profile `demo`
+- Configura Gateway, VirtualService y DestinationRule para routing de tráfico
+- Habilita sidecar injection (envoy proxy) en el namespace
+- Ejecuta pruebas de aceptación (health check, GET, POST, verify)
+- En caso de fallo, realiza rollback automático (`rollout undo`)
 
 ### Dependabot
 Dependabot está configurado en `.github/dependabot.yml`:
@@ -196,7 +212,7 @@ Branch protection en `develop` y `main` exige que pasen:
 - `test-and-sonar` (tests + Quality Gate)
 - `lint-dockerfile` (Hadolint)
 - `audit` (auditoría de seguridad)
-- `deploy-minikube` (despliegue exitoso)
+- `deploy-eks` (despliegue exitoso en EKS + Istio + pruebas de aceptación)
 
 Si falla cualquiera de estos jobs, el PR no puede mergearse.
 
@@ -263,13 +279,33 @@ Si el Quality Gate falla, el PR se bloquea automáticamente.
 
 ---
 
-## 9. Despliegue Kubernetes 
+## 9. Despliegue Kubernetes (Amazon EKS)
+
+### Cluster EKS
+- **Nombre**: `notes-api-cluster`
+- **Región**: `us-east-1`
+- **Kubernetes**: v1.36
+- **Nodos**: 2 (tipo `t3.medium`)
+- **Proveedor**: AWS Academy Learner Lab
+
+### Service Mesh (Istio)
+- **Profile**: `demo` 
+- **Sidecar injection**: habilitado en namespace `notes-api`
+- **Componentes desplegados**:
+  - `istiod` 
+  - `istio-ingressgateway` 
+  - `istio-egressgateway` 
+- **Configuración**:
+  - `Gateway`: expone puerto 80 para tráfico HTTP
+  - `VirtualService`: enruta tráfico al servicio `notes-api:80`
+  - `DestinationRule`: define load balancing (ROUND_ROBIN) y connection pooling
 
 ### Deployment (detalles)
 - **Réplicas**: 2 (alta disponibilidad)
-- **imagePullPolicy**: Never (Minikube) / Always (EKS)
-- **Readiness Probe**: `/actuator/health` 
-- **Liveness Probe**: `/actuator/health` 
+- **imagePullPolicy**: Always (desde Amazon ECR)
+- **Imagen**: `056172563599.dkr.ecr.us-east-1.amazonaws.com/notes-api`
+- **Readiness Probe**: `/actuator/health`
+- **Liveness Probe**: `/actuator/health`
 - **Resources**:
   - Requests: 256Mi RAM, 250m CPU
   - Limits: 512Mi RAM, 500m CPU
@@ -280,6 +316,13 @@ Si el Quality Gate falla, el PR se bloquea automáticamente.
 - **Métricas**:
   - CPU: escala si supera 70% de uso
   - Memory: escala si supera 80% de uso
+
+### Pruebas de aceptación
+El pipeline ejecuta automáticamente 4 pruebas contra la API desplegada:
+1. **Health check**: verifica que `/actuator/health` retorna 200
+2. **GET /api/notas**: verifica que el listado retorna 200
+3. **POST /api/notas**: verifica que la creación retorna 201
+4. **Verificar nota**: confirma que la nota creada aparece en el listado
 
 ---
 
@@ -293,7 +336,9 @@ Cada herramienta se ejecuta en una etapa específica del pipeline y bloquea el a
 - **Hadolint**: se ejecuta en el job `lint-dockerfile`. Valida el Dockerfile contra mejores prácticas. Si detecta warnings, el pipeline se detiene.
 - **audit.sh**: se ejecuta en el job `audit`. Busca secretos, root user, archivos `.env` y tags `:latest`. Si encuentra algo, el pipeline se detiene.
 - **Dependabot**: crea PRs automáticos para actualizar dependencias Maven y Actions de GitHub.
-- **Kubernetes + HPA + Probes**: se despliegan en el job `deploy-minikube` solo si los 3 jobs anteriores pasaron. HPA ajusta réplicas según CPU/memoria. Probes reinician pods que dejan de responder.
+- **Kubernetes + HPA + Probes**: se despliegan en el job `deploy-eks` solo si los 3 jobs anteriores pasaron. HPA ajusta réplicas según CPU/memoria. Probes reinician pods que dejan de responder.
+- **Istio**: se instala como service mesh en el job `deploy-eks`. Proporciona traffic management, observabilidad y seguridad en malla (mTLS entre pods).
+- **Pruebas de aceptación**: se ejecutan en el job `deploy-eks` después del despliegue. Validan que la API funcione correctamente en el clúster EKS.
 - **Prometheus + Grafana**: monitorean la aplicación después del despliegue, exponiendo métricas de rendimiento y calidad.
 
 ### Decisiones técnicas justificadas
@@ -301,5 +346,6 @@ Cada herramienta se ejecuta en una etapa específica del pipeline y bloquea el a
 - **GitFlow**: control de versiones con hotfixes paralelos y releases gestionados por PR.
 - **SonarCloud + Quality Gate**: aseguran que solo código sin bugs críticos ni vulnerabilidades llegue a producción.
 - **Hadolint + audit.sh**: refuerzan la seguridad de la imagen Docker y del repositorio.
-- **Kubernetes**: brinda alta disponibilidad, self-healing y escalamiento automático.
+- **Kubernetes (EKS)**: brinda alta disponibilidad, self-healing y escalamiento automático en un entorno-managed por AWS.
+- **Istio**: aporta traffic management (routing, retries, timeouts), observabilidad (métricas, tracing) y seguridad (mTLS) sin cambiar código de la aplicación.
 - **Prometheus + Grafana**: permiten detectar anomalías en tiempo real y tomar decisiones operacionales basadas en datos.
