@@ -140,7 +140,7 @@ jobs:
           chmod +x scripts/acceptance-test.sh
           kubectl port-forward -n notes-api svc/notes-api 8080:80 &
           sleep 10
-          ./scripts/acceptance-test.sh http://localhost:8080
+          ./scripts/acceptance-tests.sh http://localhost:8080
 
       - name: Verificar Istio
         run: |
