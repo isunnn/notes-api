@@ -153,4 +153,9 @@ jobs:
 
       - name: Cleanup en caso de error
         if: failure()
-        run: kubectl -n notes-api rollout undo deployment/notes-api
+        run: |
+          if [ -f "$HOME/.kube/config" ]; then
+            kubectl -n notes-api rollout undo deployment/notes-api
+          else
+            echo "kubeconfig no encontrado, saltando cleanup"
+          fi
