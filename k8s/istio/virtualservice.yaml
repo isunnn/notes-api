@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: notes-api
+  namespace: notes-api
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - notes-api-gateway
+  http:
+    - route:
+        - destination:
+            host: notes-api
+            port:
+              number: 80
