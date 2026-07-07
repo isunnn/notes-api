@@ -28,7 +28,7 @@ jobs:
       - name: Test (JUnit)
         run: ./mvnw -B test
 
-      - name: SonarCloud 
+      - name: SonarCloud
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
@@ -78,44 +78,79 @@ jobs:
       - name: Ejecutar auditoria
         run: chmod +x scripts/audit.sh && ./scripts/audit.sh
 
-  deploy-minikube:
+  deploy-eks:
     runs-on: ubuntu-latest
     needs: [test-and-sonar, lint-dockerfile, audit]
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start Minikube
-        uses: medyagh/setup-minikube@latest
+      - name: Configurar AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: Build image in Minikube
-        run: |
-          eval $(minikube docker-env)
-          docker build -t notes-api:latest .
+      - name: Login a ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy to Minikube
+      - name: Build y push imagen
         run: |
+          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG=${{ github.sha }}
+          docker build -t $ECR_REGISTRY/notes-api:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/notes-api:$IMAGE_TAG $ECR_REGISTRY/notes-api:latest
+          docker push $ECR_REGISTRY/notes-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/notes-api:latest
+
+      - name: Configurar kubectl
+        run: aws eks update-kubeconfig --name notes-api-cluster --region us-east-1
+
+      - name: Desplegar en EKS
+        run: |
+          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG=${{ github.sha }}
+          sed -i "s|056172563599.dkr.ecr.us-east-1.amazonaws.com/notes-api:latest|$ECR_REGISTRY/notes-api:$IMAGE_TAG|g" k8s/deployment.yaml
           kubectl apply -f k8s/namespace.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/hpa.yaml
 
-      - name: Wait for rollout
-        run: kubectl -n notes-api rollout status deployment/notes-api --timeout=120s
-
-      - name: Smoke test
+      - name: Instalar Istio
         run: |
-          for i in {1..20}; do
-            if kubectl -n notes-api exec deploy/notes-api -- curl -fsS http://localhost:8080/api/notas > /dev/null 2>&1; then
-              echo "API OK"
-              exit 0
-            fi
-            echo "Esperando API..."
-            sleep 3
-          done
-          echo "La API no inició"
-          kubectl -n notes-api logs -l app=notes-api
-          exit 1
+          ISTIO_VERSION="1.30.2"
+          curl -L https://github.com/istio/istio/releases/download/$ISTIO_VERSION/istio-$ISTIO_VERSION-linux-amd64.tar.gz | tar xz
+          export PATH=$PWD/istio-$ISTIO_VERSION/bin:$PATH
+          istioctl install --set profile=demo -y
+          kubectl label namespace notes-api istio-injection=enabled --overwrite
 
-      - name: Cleanup
-        if: always()
-        run: minikube delete
+      - name: Aplicar configuración Istio
+        run: |
+          kubectl apply -f k8s/istio/gateway.yaml
+          kubectl apply -f k8s/istio/virtualservice.yaml
+          kubectl apply -f k8s/istio/destinationrule.yaml
+
+      - name: Esperar rollout
+        run: kubectl -n notes-api rollout status deployment/notes-api --timeout=180s
+
+      - name: Pruebas de aceptación
+        run: |
+          chmod +x scripts/acceptance-test.sh
+          kubectl port-forward -n notes-api svc/notes-api 8080:80 &
+          sleep 10
+          ./scripts/acceptance-test.sh http://localhost:8080
+
+      - name: Verificar Istio
+        run: |
+          kubectl -n notes-api get gateway
+          kubectl -n notes-api get virtualservice
+          kubectl -n notes-api get destinationrule
+
+      - name: Verificar CloudWatch
+        run: kubectl get pods -n amazon-cloudwatch
+
+      - name: Cleanup en caso de error
+        if: failure()
+        run: kubectl -n notes-api rollout undo deployment/notes-api
